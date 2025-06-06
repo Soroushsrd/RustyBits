@@ -3,37 +3,81 @@ package routes
 import (
 	"RustyBits/internals/handlers"
 	"RustyBits/internals/middleware"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 func SetupRoutes(r *gin.Engine, db *gorm.DB) {
-	r.GET("/", handlers.HomePageHandler)
-	r.GET("/posts", handlers.GetPosts)
-	r.GET("/posts/:slug", handlers.GetPost)
-	r.GET("/posts/:tag", handlers.GetPostsByTag)
+	h := handlers.NewHandler(db)
 
+	//  optional auth middleware to all routes to set user context if logged in
+	r.Use(middleware.OptionalAuth(db))
+
+	// Public routes
+	r.GET("/", h.Home)
+	r.GET("/posts/:slug", h.GetPost)
+	r.GET("/posts", h.GetPosts)
+	r.GET("/tags/:tag", h.GetPostsByTag)
+	r.GET("/rss", h.RSS)
+
+	//  routes for HTMX
 	api := r.Group("/api")
 	{
-		api.GET("/posts", handlers.GetPostsJson)
-		api.GET("/posts/:id", handlers.GetPostJson)
+		api.GET("/posts", h.GetPostsJson)
+		api.GET("/posts/:id", h.GetPostJson)
 	}
+
+	r.GET("/login", h.LoginForm)
+	r.POST("/login", h.Login)
+	r.POST("/logout", h.Logout)
 
 	admin := r.Group("/admin")
-	admin.Use(middleware.AuthRequired())
+	admin.Use(middleware.AuthRequired(db))
 	{
-		admin.GET("/", handlers.AdminDashboard)
-		admin.GET("/posts", handlers.AdminPosts)
-		admin.GET("/posts/new", handlers.NewPostForm)
-		admin.POST("/posts", handlers.CreatePost)
-		admin.GET("/posts/:id/edit", handlers.EditPostForm)
-		admin.PATCH("/posts/:id", handlers.UpdatePost)
-		admin.DELETE("/posts/:id", handlers.DeletePost)
-		admin.PATCH("/posts/:id/toggle", handlers.TogglePublished)
+		admin.GET("/", h.AdminDashboard)
+		admin.GET("/posts", h.AdminPosts)
+		admin.GET("/posts/new", h.NewPostForm)
+		admin.POST("/posts", h.CreatePost)
+		admin.GET("/posts/:id/edit", h.EditPostForm)
+		admin.PATCH("/posts/:id", h.UpodatePost)
+		admin.DELETE("/posts/:id", h.DeletePost)
+		admin.PATCH("/posts/:id/toggle", h.TogglePublished)
 	}
+}
 
-	r.GET("/login", handlers.LoginForm)
-	r.POST("/login", handlers.Login)
-	r.POST("/logout", handlers.Logout)
+// func SetupAPIRoutes(r *gin.Engine, db *gorm.DB) {
+// 	h := handlers.NewHandler(db)
+//
+// 	api := r.Group("/api/v1")
+// 	{
+// 		api.GET("/posts", h.GetPostsJson)
+// 		api.GET("/posts/:id", h.GetPostJson)
+//
+// 		protected := api.Group("/")
+// 		protected.Use(middleware.AuthRequired(db))
+// 		{
+// 			protected.POST("/posts", h.CreatePost)
+// 			protected.PATCH("/posts/:id", h.UpodatePost)
+// 			protected.DELETE("/posts/:id", h.DeletePost)
+// 		}
+// 	}
+// }
 
+func SetupRoutesWithCORS(r *gin.Engine, db *gorm.DB) {
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, HX-Request, HX-Target")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
+	SetupRoutes(r, db)
 }
